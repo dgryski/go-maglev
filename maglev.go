@@ -37,8 +37,13 @@ func generatePermutations(names []string, M uint64) [][]uint64 {
 		h := siphash.Hash(0xdeadbeefcafebabe, 0, b)
 		offset, skip := (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
 		p := make([]uint64, M)
+		idx := offset
 		for j := uint64(0); j < M; j++ {
-			p[j] = uint64((offset + j*skip) % M)
+			for idx >= M {
+				idx -= M
+			}
+			p[j] = idx
+			idx += skip
 		}
 		permutations[i] = p
 	}
