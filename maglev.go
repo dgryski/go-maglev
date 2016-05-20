@@ -39,11 +39,11 @@ func generatePermutations(names []string, M uint64) [][]uint64 {
 		p := make([]uint64, M)
 		idx := offset
 		for j := uint64(0); j < M; j++ {
-			for idx >= M {
-				idx -= M
-			}
 			p[j] = idx
 			idx += skip
+			if idx >= M {
+				idx -= M
+			}
 		}
 		permutations[i] = p
 	}
