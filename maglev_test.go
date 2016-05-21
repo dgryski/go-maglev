@@ -9,18 +9,24 @@ import (
 
 func TestPopulate(t *testing.T) {
 
+	var tests = []struct {
+		dead []int
+		want []int
+	}{
+		{nil, []int{1, 0, 1, 0, 2, 2, 0}},
+		{[]int{1}, []int{0, 0, 0, 0, 2, 2, 2}},
+	}
+
 	permutations := [][]uint64{
 		{3, 0, 4, 1, 5, 2, 6},
 		{0, 2, 4, 6, 1, 3, 5},
 		{3, 4, 5, 6, 0, 1, 2},
 	}
 
-	want := []int{1, 0, 1, 0, 2, 2, 0}
-
-	got := populate(permutations)
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("poplate failed: got=%v want=%v", got, want)
+	for _, tt := range tests {
+		if got := populate(permutations, tt.dead); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("populate(...,%v)=%v, want %v", tt.dead, got, tt.want)
+		}
 	}
 }
 

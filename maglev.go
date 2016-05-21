@@ -12,21 +12,27 @@ const (
 )
 
 type Table struct {
-	n      int
-	lookup []int
+	n            int
+	lookup       []int
+	permutations [][]uint64
 }
 
 func New(names []string, m uint64) *Table {
 	permutations := generatePermutations(names, m)
-	lookup := populate(permutations)
+	lookup := populate(permutations, nil)
 	return &Table{
-		n:      len(names),
-		lookup: lookup,
+		n:            len(names),
+		lookup:       lookup,
+		permutations: permutations,
 	}
 }
 
 func (t *Table) Lookup(key uint64) int {
 	return t.lookup[key%uint64(len(t.lookup))]
+}
+
+func (t *Table) Rebuild(dead []int) {
+	t.lookup = populate(t.permutations, dead)
 }
 
 func generatePermutations(names []string, M uint64) [][]uint64 {
@@ -51,7 +57,7 @@ func generatePermutations(names []string, M uint64) [][]uint64 {
 	return permutations
 }
 
-func populate(permutation [][]uint64) []int {
+func populate(permutation [][]uint64, dead []int) []int {
 	M := len(permutation[0])
 	N := len(permutation)
 
@@ -63,7 +69,12 @@ func populate(permutation [][]uint64) []int {
 
 	var n int
 	for {
+		d := dead
 		for i := 0; i < N; i++ {
+			if len(d) > 0 && d[0] == i {
+				d = d[1:]
+				continue
+			}
 			c := permutation[i][next[i]]
 			for entry[c] >= 0 {
 				next[i]++
