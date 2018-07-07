@@ -17,6 +17,7 @@ const (
 
 type Table struct {
 	names       []string
+	hashes      []uint64
 	assignments []int
 }
 
@@ -24,9 +25,14 @@ func New(names []string, M uint64) *Table {
 	sortedNames := make([]string, len(names))
 	copy(sortedNames, names)
 	sort.Strings(sortedNames)
+	hashes := make([]uint64, len(names))
+	for i, name := range sortedNames {
+		hashes[i] = siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
+	}
 	return &Table{
 		names:       sortedNames,
-		assignments: populate(names, M, nil),
+		hashes:      hashes,
+		assignments: populate(hashes, M, nil),
 	}
 }
 
@@ -50,17 +56,16 @@ func (t *Table) Rebuild(dead []string) {
 			}
 		}
 	}
-	t.assignments = populate(t.names, uint64(len(t.assignments)), deadIndexes)
+	t.assignments = populate(t.hashes, uint64(len(t.assignments)), deadIndexes)
 }
 
-func permutate(name string, M uint64, cursor uint64) uint64 {
-	h := siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
-	offset, skip := (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
+func permutate(hash uint64, M uint64, cursor uint64) uint64 {
+	offset, skip := (hash>>32)%M, ((hash&0xffffffff)%(M-1) + 1)
 	return (offset + skip*cursor) % M
 }
 
-func populate(names []string, M uint64, dead []int) []int {
-	N := len(names)
+func populate(hashes []uint64, M uint64, dead []int) []int {
+	N := len(hashes)
 	cursors := make([]uint64, N)
 	assignments := make([]int, M)
 	for partition := range assignments {
@@ -75,10 +80,10 @@ func populate(names []string, M uint64, dead []int) []int {
 				d = d[1:]
 				continue
 			}
-			partition := permutate(names[node], M, cursors[node])
+			partition := permutate(hashes[node], M, cursors[node])
 			for assignments[partition] >= 0 {
 				cursors[node]++
-				partition = permutate(names[node], M, cursors[node])
+				partition = permutate(hashes[node], M, cursors[node])
 			}
 			assignments[partition] = node
 			cursors[node]++
