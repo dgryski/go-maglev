@@ -65,19 +65,19 @@ func (t *Table) Rebuild(dead []string) {
 	t.populate(deadIndexes)
 }
 
-func permute(h hashed, M uint32, cursor uint32) uint32 {
-	return (h.offset + h.skip*cursor) % M
+func permute(h hashed, M uint64, cursor uint64) uint32 {
+	return uint32((uint64(h.offset) + uint64(h.skip)*cursor) % M)
 }
 
 func (t *Table) populate(dead []int) {
-	M := uint32(len(t.assignments))
+	M := uint64(len(t.assignments))
 	N := len(t.names)
 	cursors := make([]uint32, N)
 	for partition := range t.assignments {
 		t.assignments[partition] = -1
 	}
 
-	var assigned uint32
+	var assigned uint64
 	for {
 		d := dead
 		for node := 0; node < N; node++ {
@@ -85,10 +85,10 @@ func (t *Table) populate(dead []int) {
 				d = d[1:]
 				continue
 			}
-			partition := permute(t.hashes[node], M, cursors[node])
+			partition := permute(t.hashes[node], M, uint64(cursors[node]))
 			for t.assignments[partition] >= 0 {
 				cursors[node]++
-				partition = permute(t.hashes[node], M, cursors[node])
+				partition = permute(t.hashes[node], M, uint64(cursors[node]))
 			}
 			t.assignments[partition] = node
 			cursors[node]++
