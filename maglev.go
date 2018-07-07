@@ -59,7 +59,7 @@ func (t *Table) Rebuild(dead []string) {
 	t.assignments = populate(t.hashes, uint64(len(t.assignments)), deadIndexes)
 }
 
-func permutate(hash uint64, M uint64, cursor uint64) uint64 {
+func permute(hash uint64, M uint64, cursor uint64) uint64 {
 	offset, skip := (hash>>32)%M, ((hash&0xffffffff)%(M-1) + 1)
 	return (offset + skip*cursor) % M
 }
@@ -80,10 +80,10 @@ func populate(hashes []uint64, M uint64, dead []int) []int {
 				d = d[1:]
 				continue
 			}
-			partition := permutate(hashes[node], M, cursors[node])
+			partition := permute(hashes[node], M, cursors[node])
 			for assignments[partition] >= 0 {
 				cursors[node]++
-				partition = permutate(hashes[node], M, cursors[node])
+				partition = permute(hashes[node], M, cursors[node])
 			}
 			assignments[partition] = node
 			cursors[node]++
