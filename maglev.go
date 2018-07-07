@@ -4,7 +4,11 @@
 */
 package maglev
 
-import "github.com/dchest/siphash"
+import (
+	"sort"
+
+	"github.com/dchest/siphash"
+)
 
 const (
 	SmallM = 65537
@@ -12,79 +16,75 @@ const (
 )
 
 type Table struct {
-	n            int
-	lookup       []int
-	permutations [][]uint64
+	names       []string
+	assignments []int
 }
 
-func New(names []string, m uint64) *Table {
-	permutations := generatePermutations(names, m)
-	lookup := populate(permutations, nil)
+func New(names []string, M uint64) *Table {
+	sortedNames := make([]string, len(names))
+	copy(sortedNames, names)
+	sort.Strings(sortedNames)
 	return &Table{
-		n:            len(names),
-		lookup:       lookup,
-		permutations: permutations,
+		names:       sortedNames,
+		assignments: populate(names, M, nil),
 	}
 }
 
-func (t *Table) Lookup(key uint64) int {
-	return t.lookup[key%uint64(len(t.lookup))]
+func (t *Table) Lookup(key uint64) string {
+	return t.names[t.assignments[key%uint64(len(t.assignments))]]
 }
 
-func (t *Table) Rebuild(dead []int) {
-	t.lookup = populate(t.permutations, dead)
-}
-
-func generatePermutations(names []string, M uint64) [][]uint64 {
-	permutations := make([][]uint64, len(names))
-
-	for i, name := range names {
-		b := []byte(name)
-		h := siphash.Hash(0xdeadbeefcafebabe, 0, b)
-		offset, skip := (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
-		p := make([]uint64, M)
-		idx := offset
-		for j := uint64(0); j < M; j++ {
-			p[j] = idx
-			idx += skip
-			if idx >= M {
-				idx -= M
+func (t *Table) Rebuild(dead []string) {
+	deadSorted := make([]string, len(dead))
+	copy(deadSorted, dead)
+	sort.Strings(deadSorted)
+	deadIndexes := make([]int, len(dead))
+	N := len(t.names)
+	nextIndex := 0
+	for i, s := range deadSorted {
+		for j := nextIndex; j < N; j++ {
+			if t.names[j] == s {
+				deadIndexes[i] = j
+				nextIndex = j + 1
+				break
 			}
 		}
-		permutations[i] = p
 	}
-
-	return permutations
+	t.assignments = populate(t.names, uint64(len(t.assignments)), deadIndexes)
 }
 
-func populate(permutation [][]uint64, dead []int) []int {
-	M := len(permutation[0])
-	N := len(permutation)
+func permutate(name string, M uint64, cursor uint64) uint64 {
+	h := siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
+	offset, skip := (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
+	return (offset + skip*cursor) % M
+}
 
-	next := make([]uint64, N)
-	entry := make([]int, M)
-	for j := range entry {
-		entry[j] = -1
+func populate(names []string, M uint64, dead []int) []int {
+	N := len(names)
+	cursors := make([]uint64, N)
+	assignments := make([]int, M)
+	for partition := range assignments {
+		assignments[partition] = -1
 	}
 
-	var n int
+	var assigned int
 	for {
 		d := dead
-		for i := 0; i < N; i++ {
-			if len(d) > 0 && d[0] == i {
+		for node := 0; node < N; node++ {
+			if len(d) > 0 && d[0] == node {
 				d = d[1:]
 				continue
 			}
-			c := permutation[i][next[i]]
-			for entry[c] >= 0 {
-				next[i]++
-				c = permutation[i][next[i]]
+			partition := permutate(names[node], M, cursors[node])
+			for assignments[partition] >= 0 {
+				cursors[node]++
+				partition = permutate(names[node], M, cursors[node])
 			}
-			entry[c] = i
-			next[i]++
-			n++
-			if n == M {
-				return entry
+			assignments[partition] = node
+			cursors[node]++
+			assigned++
+			if uint64(assigned) == M {
+				return assignments
 			}
 		}
 	}
