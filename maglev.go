@@ -75,30 +75,54 @@ func (t *Table) populate(dead []int) {
 		t.assignments[partition] = -1
 	}
 	hashes := t.hashNames()
-	t.populateOnce(hashes, nil, 0)
+	t.assign(hashes)
 	if len(dead) == 0 {
 		return
 	}
-	t.populateOnce(hashes, dead, M-t.unassign(dead))
+	t.reassign(hashes, dead, M-t.unassign(dead))
 }
 
-func (t *Table) populateOnce(hashes []hashed, dead []int, assigned uint64) {
+func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
+	M := uint64(len(t.assignments))
+	offset, skip := uint64(hash.offset), uint64(hash.skip)
+	partition := (offset + skip*uint64(cursors[node])) % M
+	for t.assignments[partition] >= 0 {
+		cursors[node]++
+		partition = (offset + skip*uint64(cursors[node])) % M
+	}
+	return uint(partition)
+}
+
+func (t *Table) assign(hashes []hashed) {
+	M := uint64(len(t.assignments))
+	N := len(hashes)
+	cursors := make([]uint32, len(hashes))
+	var assigned uint64
+	for {
+		for node := 0; node < N; node++ {
+			partition := t.nextAvailablePartition(hashes[node], cursors, node)
+			t.assignments[partition] = node
+			cursors[node]++
+			assigned++
+			if assigned == M {
+				return
+			}
+		}
+	}
+}
+
+func (t *Table) reassign(hashes []hashed, dead []int, assigned uint64) {
 	M := uint64(len(t.assignments))
 	N := len(hashes)
 	cursors := make([]uint32, len(hashes))
 	for {
-		d := 0
-		for node := 0; node < N; node++ {
-			if d < len(dead) && dead[d] == node {
-				d++
+		d := len(dead) - 1
+		for node := N - 1; node >= 0; node-- {
+			if d >= 0 && dead[d] == node {
+				d--
 				continue
 			}
-			offset, skip := uint64(hashes[node].offset), uint64(hashes[node].skip)
-			partition := (offset + skip*uint64(cursors[node])) % M
-			for t.assignments[partition] >= 0 {
-				cursors[node]++
-				partition = (offset + skip*uint64(cursors[node])) % M
-			}
+			partition := t.nextAvailablePartition(hashes[node], cursors, node)
 			t.assignments[partition] = node
 			cursors[node]++
 			assigned++
