@@ -84,12 +84,13 @@ func (t *Table) populate(dead []int) {
 
 func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
 	M := uint64(len(t.assignments))
-	offset, skip := uint64(hash.offset), uint64(hash.skip)
-	partition := (offset + skip*uint64(cursors[node])) % M
+	offset, skip, cursor := uint64(hash.offset), uint64(hash.skip), uint64(cursors[node])
+	partition := (offset + skip*cursor) % M
 	for t.assignments[partition] >= 0 {
-		cursors[node]++
-		partition = (offset + skip*uint64(cursors[node])) % M
+		cursor++
+		partition = (offset + skip*cursor) % M
 	}
+	cursors[node] = uint32(cursor)
 	return uint(partition)
 }
 
