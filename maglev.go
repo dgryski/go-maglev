@@ -120,9 +120,9 @@ func (t *Table) reassign(hashes []hashed, dead []int) {
 	for _, node := range dead {
 		deadMap[node] = true
 	}
-	for assignmentPartition, assignedNode := range t.assignments {
-		if deadMap[assignedNode] {
-			t.assignments[assignmentPartition] = -1
+	for partition, node := range t.assignments {
+		if deadMap[node] {
+			t.assignments[partition] = -1
 			assigned--
 		}
 	}
