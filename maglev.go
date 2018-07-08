@@ -90,6 +90,7 @@ func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) 
 		cursor++
 		partition = (offset + skip*cursor) % M
 	}
+	cursor++
 	cursors[node] = uint32(cursor)
 	return uint(partition)
 }
@@ -101,9 +102,7 @@ func (t *Table) assign(hashes []hashed) {
 	var assigned uint64
 	for {
 		for node := 0; node < N; node++ {
-			partition := t.nextAvailablePartition(hashes[node], cursors, node)
-			t.assignments[partition] = node
-			cursors[node]++
+			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
 			assigned++
 			if assigned == M {
 				return
@@ -123,9 +122,7 @@ func (t *Table) reassign(hashes []hashed, dead []int, assigned uint64) {
 				d--
 				continue
 			}
-			partition := t.nextAvailablePartition(hashes[node], cursors, node)
-			t.assignments[partition] = node
-			cursors[node]++
+			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
 			assigned++
 			if assigned == M {
 				return
