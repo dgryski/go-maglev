@@ -70,7 +70,6 @@ func (t *Table) hashNames() []hashed {
 }
 
 func (t *Table) populate(dead []int) {
-	M := uint64(len(t.assignments))
 	for partition := range t.assignments {
 		t.assignments[partition] = -1
 	}
@@ -79,7 +78,7 @@ func (t *Table) populate(dead []int) {
 	if len(dead) == 0 {
 		return
 	}
-	t.reassign(hashes, dead, M-t.unassign(dead))
+	t.reassign(hashes, dead)
 }
 
 func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
@@ -96,10 +95,10 @@ func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) 
 }
 
 func (t *Table) assign(hashes []hashed) {
-	M := uint64(len(t.assignments))
+	M := len(t.assignments)
 	N := len(hashes)
 	cursors := make([]uint32, len(hashes))
-	var assigned uint64
+	var assigned int
 	for {
 		for node := 0; node < N; node++ {
 			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
@@ -111,10 +110,22 @@ func (t *Table) assign(hashes []hashed) {
 	}
 }
 
-func (t *Table) reassign(hashes []hashed, dead []int, assigned uint64) {
-	M := uint64(len(t.assignments))
+func (t *Table) reassign(hashes []hashed, dead []int) {
+	M := len(t.assignments)
 	N := len(hashes)
+	assigned := M
 	cursors := make([]uint32, len(hashes))
+	deadMap := make(map[int]bool, len(dead))
+
+	for _, node := range dead {
+		deadMap[node] = true
+	}
+	for assignmentPartition, assignedNode := range t.assignments {
+		if deadMap[assignedNode] {
+			t.assignments[assignmentPartition] = -1
+			assigned--
+		}
+	}
 	for {
 		d := len(dead) - 1
 		for node := N - 1; node >= 0; node-- {
@@ -129,19 +140,4 @@ func (t *Table) reassign(hashes []hashed, dead []int, assigned uint64) {
 			}
 		}
 	}
-}
-
-func (t *Table) unassign(dead []int) uint64 {
-	deadMap := make(map[int]bool, len(dead))
-	for _, node := range dead {
-		deadMap[node] = true
-	}
-	var unassigned uint64
-	for assignmentPartition, assignedNode := range t.assignments {
-		if deadMap[assignedNode] {
-			t.assignments[assignmentPartition] = -1
-			unassigned++
-		}
-	}
-	return unassigned
 }
