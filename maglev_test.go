@@ -24,7 +24,7 @@ func TestDistribution(t *testing.T) {
 	}
 
 	var total int
-	var max = 0
+	var max int
 	for _, v := range r {
 		total += v
 		if v > max {
@@ -34,4 +34,75 @@ func TestDistribution(t *testing.T) {
 
 	mean := float64(total) / size
 	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
+
+	r = make(map[string]int, size)
+	for _, node := range table.assignments {
+		r[table.names[node]]++
+	}
+
+	max = 0
+	min := 1 << 30
+	for _, v := range r {
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+	}
+
+	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+
+	originalAssignments := make([]int, len(table.assignments))
+	copy(originalAssignments, table.assignments)
+
+	table.Rebuild([]string{"backend-13"})
+
+	var reassigned int
+	for partition, node := range table.assignments {
+		if originalAssignments[partition] != node {
+			reassigned++
+		}
+	}
+
+	t.Logf("reassigned=%v/%v=%v", reassigned, len(originalAssignments), float64(reassigned)/float64(len(originalAssignments)))
+
+	r = make(map[string]int, size)
+	for i := 0; i < 1e6; i++ {
+		name := table.Lookup(uint64(rand.Int63()))
+		r[name]++
+	}
+
+	total = 0
+	max = 0
+	for _, v := range r {
+		total += v
+		if v > max {
+			max = v
+		}
+	}
+
+	mean = float64(total) / size
+	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
+
+	r = make(map[string]int, size)
+	for _, node := range table.assignments {
+		if table.names[node] == "backend-13" {
+			t.Fatal("Dead node was not reassigned after rebuild")
+		}
+		r[table.names[node]]++
+	}
+
+	max = 0
+	min = 1 << 30
+	for _, v := range r {
+		if v > max {
+			max = v
+		}
+		if v < min {
+			min = v
+		}
+	}
+
+	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 }

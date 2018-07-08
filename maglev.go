@@ -17,7 +17,6 @@ const (
 
 type Table struct {
 	names       []string
-	hashes      []hashed
 	assignments []int
 }
 
@@ -29,15 +28,10 @@ type hashed struct {
 func New(names []string, M uint) *Table {
 	t := &Table{
 		names:       make([]string, len(names)),
-		hashes:      make([]hashed, len(names)),
 		assignments: make([]int, M),
 	}
 	copy(t.names, names)
 	sort.Strings(t.names)
-	for i, name := range t.names {
-		hash := siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
-		t.hashes[i].offset, t.hashes[i].skip = uint32((hash>>32)%uint64(M)), uint32((hash&0xffffffff)%(uint64(M)-1)+1)
-	}
 	t.populate(nil)
 	return t
 }
@@ -65,30 +59,45 @@ func (t *Table) Rebuild(dead []string) {
 	t.populate(deadIndexes)
 }
 
-func permute(h hashed, M uint64, cursor uint64) uint32 {
-	return uint32((uint64(h.offset) + uint64(h.skip)*cursor) % M)
+func (t *Table) hashNames() []hashed {
+	M := uint64(len(t.assignments))
+	hashes := make([]hashed, len(t.names))
+	for i, name := range t.names {
+		hash := siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
+		hashes[i].offset, hashes[i].skip = uint32((hash>>32)%uint64(M)), uint32((hash&0xffffffff)%(uint64(M)-1)+1)
+	}
+	return hashes
 }
 
 func (t *Table) populate(dead []int) {
 	M := uint64(len(t.assignments))
-	N := len(t.names)
-	cursors := make([]uint32, N)
 	for partition := range t.assignments {
 		t.assignments[partition] = -1
 	}
+	hashes := t.hashNames()
+	t.populateOnce(hashes, nil, 0)
+	if len(dead) == 0 {
+		return
+	}
+	t.populateOnce(hashes, dead, M-t.unassign(dead))
+}
 
-	var assigned uint64
+func (t *Table) populateOnce(hashes []hashed, dead []int, assigned uint64) {
+	M := uint64(len(t.assignments))
+	N := len(hashes)
+	cursors := make([]uint32, len(hashes))
 	for {
-		d := dead
+		d := 0
 		for node := 0; node < N; node++ {
-			if len(d) > 0 && d[0] == node {
-				d = d[1:]
+			if d < len(dead) && dead[d] == node {
+				d++
 				continue
 			}
-			partition := permute(t.hashes[node], M, uint64(cursors[node]))
+			offset, skip := uint64(hashes[node].offset), uint64(hashes[node].skip)
+			partition := (offset + skip*uint64(cursors[node])) % M
 			for t.assignments[partition] >= 0 {
 				cursors[node]++
-				partition = permute(t.hashes[node], M, uint64(cursors[node]))
+				partition = (offset + skip*uint64(cursors[node])) % M
 			}
 			t.assignments[partition] = node
 			cursors[node]++
@@ -98,4 +107,19 @@ func (t *Table) populate(dead []int) {
 			}
 		}
 	}
+}
+
+func (t *Table) unassign(dead []int) uint64 {
+	deadMap := make(map[int]bool, len(dead))
+	for _, node := range dead {
+		deadMap[node] = true
+	}
+	var unassigned uint64
+	for assignmentPartition, assignedNode := range t.assignments {
+		if deadMap[assignedNode] {
+			t.assignments[assignmentPartition] = -1
+			unassigned++
+		}
+	}
+	return unassigned
 }
