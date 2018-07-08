@@ -32,7 +32,7 @@ func New(names []string, M uint) *Table {
 	}
 	copy(t.names, names)
 	sort.Strings(t.names)
-	t.populate(nil)
+	t.assign(t.hashNames())
 	return t
 }
 
@@ -56,7 +56,11 @@ func (t *Table) Rebuild(dead []string) {
 			}
 		}
 	}
-	t.populate(deadIndexes)
+	hashes := t.hashNames()
+	t.assign(hashes)
+	if len(dead) > 0 {
+		t.reassign(hashes, deadIndexes)
+	}
 }
 
 func (t *Table) hashNames() []hashed {
@@ -69,36 +73,14 @@ func (t *Table) hashNames() []hashed {
 	return hashes
 }
 
-func (t *Table) populate(dead []int) {
-	for partition := range t.assignments {
-		t.assignments[partition] = -1
-	}
-	hashes := t.hashNames()
-	t.assign(hashes)
-	if len(dead) == 0 {
-		return
-	}
-	t.reassign(hashes, dead)
-}
-
-func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
-	M := uint64(len(t.assignments))
-	offset, skip, cursor := uint64(hash.offset), uint64(hash.skip), uint64(cursors[node])
-	partition := (offset + skip*cursor) % M
-	for t.assignments[partition] >= 0 {
-		cursor++
-		partition = (offset + skip*cursor) % M
-	}
-	cursor++
-	cursors[node] = uint32(cursor)
-	return uint(partition)
-}
-
 func (t *Table) assign(hashes []hashed) {
 	M := len(t.assignments)
 	N := len(hashes)
+	assigned := 0
 	cursors := make([]uint32, len(hashes))
-	var assigned int
+	for partition := range t.assignments {
+		t.assignments[partition] = -1
+	}
 	for {
 		for node := 0; node < N; node++ {
 			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
@@ -140,4 +122,17 @@ func (t *Table) reassign(hashes []hashed, dead []int) {
 			}
 		}
 	}
+}
+
+func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
+	M := uint64(len(t.assignments))
+	offset, skip, cursor := uint64(hash.offset), uint64(hash.skip), uint64(cursors[node])
+	partition := (offset + skip*cursor) % M
+	for t.assignments[partition] >= 0 {
+		cursor++
+		partition = (offset + skip*cursor) % M
+	}
+	cursor++
+	cursors[node] = uint32(cursor)
+	return uint(partition)
 }
