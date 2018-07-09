@@ -99,11 +99,13 @@ func (t *Table) Rebuild(dead []string) {
 	deadIndexes := make([]int, len(deadSorted))
 	N := len(t.names)
 	nextIndex := 0
+	found := 0
 	for i, deadNode := range deadSorted {
-		for j := nextIndex; j < N; j++ {
+		for j := nextIndex; j < N && found < len(deadSorted); j++ {
 			if t.names[j] == deadNode {
 				deadIndexes[i] = j
 				nextIndex = j + 1
+				found++
 				break
 			}
 		}
