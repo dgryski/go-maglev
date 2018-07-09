@@ -37,7 +37,7 @@ func TestDistribution(t *testing.T) {
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
-		r[table.names[node]]++
+		r[table.nodes[node].name]++
 	}
 
 	max = 0
@@ -87,10 +87,10 @@ func TestDistribution(t *testing.T) {
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
-		if table.names[node] == "backend-13" {
+		if table.nodes[node].name == "backend-13" {
 			t.Fatal("Dead node was not reassigned after rebuild")
 		}
-		r[table.names[node]]++
+		r[table.nodes[node].name]++
 	}
 
 	max = 0
@@ -105,4 +105,8 @@ func TestDistribution(t *testing.T) {
 	}
 
 	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+
+	if nextPrime(104312) != 104323 {
+		t.Fatal("nextPrime is broken")
+	}
 }
