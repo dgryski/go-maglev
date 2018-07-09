@@ -16,39 +16,25 @@ const (
 )
 
 type Table struct {
-	nodes       []hashedName
+	names       []string
+	hashes      [][]hash
 	assignments []int16
 	mod         uint64
 	strength    int
 }
 
-type hashedName struct {
-	name   string
-	hashes []hash
-}
-
 type hash struct {
-	hash         uint64
 	offset, skip uint32
 }
 
-func hashNames(names []string, M uint64, strength int) []hashedName {
-	hashedNames := make([]hashedName, len(names))
-	for i, name := range names {
-		hashedNames[i].name = name
-		hashedNames[i].hashes = make([]hash, strength)
-		for j := 0; j < strength; j++ {
-			h := siphash.Hash(0xdeadbeefcafebabe, uint64(j), []byte(name))
-			hashedNames[i].hashes[j] = hash{h, uint32((h >> 32) % M), uint32((h&0xffffffff)%(M-1) + 1)}
-		}
-	}
-	return hashedNames
+func hashString(s string, seed uint64) uint64 {
+	return siphash.Hash(0xdeadbeefcafebabe, seed, []byte(s))
 }
 
-func sortNodes(nodes []hashedName) {
-	sort.Slice(nodes, func(i, j int) bool {
-		hi, hj := nodes[i].hashes[0].hash, nodes[j].hashes[0].hash
-		return hi < hj || (hi == hj && nodes[i].name < nodes[j].name)
+func sortNames(names []string) {
+	sort.Slice(names, func(i, j int) bool {
+		hi, hj := hashString(names[i], 0), hashString(names[j], 0)
+		return hi < hj || (hi == hj && names[i] < names[j])
 	})
 }
 
@@ -85,29 +71,37 @@ func NewWithPermutationStrength(names []string, size uint, strength int) *Table 
 	}
 	M := uint64(nextPrime(size - 1))
 	t := &Table{
-		nodes:       hashNames(names, M, strength),
+		names:       append([]string{}, names...),
+		hashes:      make([][]hash, len(names)),
 		assignments: make([]int16, size),
 		mod:         M,
 		strength:    strength,
 	}
-	sortNodes(t.nodes)
+	sortNames(t.names)
+	for i, name := range t.names {
+		t.hashes[i] = make([]hash, strength)
+		for j := 0; j < strength; j++ {
+			h := siphash.Hash(0xdeadbeefcafebabe, uint64(j), []byte(name))
+			t.hashes[i][j] = hash{uint32((h >> 32) % M), uint32((h&0xffffffff)%(M-1) + 1)}
+		}
+	}
 	t.assign()
 	return t
 }
 
 func (t *Table) Lookup(key uint64) string {
-	return t.nodes[t.assignments[key%uint64(len(t.assignments))]].name
+	return t.names[t.assignments[key%uint64(len(t.assignments))]]
 }
 
 func (t *Table) Rebuild(dead []string) {
-	deadNodes := hashNames(dead, t.mod, t.strength)
-	sortNodes(deadNodes)
-	deadIndexes := make([]int, len(deadNodes))
-	N := len(t.nodes)
+	deadSorted := append([]string{}, dead...)
+	sortNames(deadSorted)
+	deadIndexes := make([]int, len(deadSorted))
+	N := len(t.names)
 	nextIndex := 0
-	for i, deadNode := range deadNodes {
+	for i, deadNode := range deadSorted {
 		for j := nextIndex; j < N; j++ {
-			if t.nodes[j].name == deadNode.name {
+			if t.names[j] == deadNode {
 				deadIndexes[i] = j
 				nextIndex = j + 1
 				break
@@ -122,7 +116,7 @@ func (t *Table) Rebuild(dead []string) {
 
 func (t *Table) assign() {
 	numPartitions := len(t.assignments)
-	N := len(t.nodes)
+	N := len(t.names)
 	assigned := 0
 	cursors := make([]uint32, N)
 	for partition := range t.assignments {
@@ -141,7 +135,7 @@ func (t *Table) assign() {
 
 func (t *Table) reassign(dead []int) {
 	numPartitions := len(t.assignments)
-	N := len(t.nodes)
+	N := len(t.names)
 	assigned := numPartitions
 	cursors := make([]uint32, N)
 	deadMap := make(map[int]bool, len(dead))
@@ -172,18 +166,18 @@ func (t *Table) reassign(dead []int) {
 
 func (t *Table) nextAvailablePartition(cursors []uint32, node int) uint {
 	numPartitions := uint(len(t.assignments))
-	partition := t.permute(cursors[node], t.nodes[node])
+	partition := t.permute(cursors[node], t.hashes[node])
 	cursors[node]++
 	for partition > numPartitions-1 || t.assignments[partition] >= 0 {
-		partition = t.permute(cursors[node], t.nodes[node])
+		partition = t.permute(cursors[node], t.hashes[node])
 		cursors[node]++
 	}
 	return partition
 }
 
-func (t *Table) permute(cursor uint32, node hashedName) uint {
+func (t *Table) permute(cursor uint32, hashes []hash) uint {
 	c := uint64(cursor)
-	for _, h := range node.hashes {
+	for _, h := range hashes {
 		c = (uint64(h.offset) + uint64(h.skip)*c) % t.mod
 	}
 	return uint(c)

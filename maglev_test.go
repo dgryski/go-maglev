@@ -37,7 +37,7 @@ func TestDistribution(t *testing.T) {
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
-		r[table.nodes[node].name]++
+		r[table.names[node]]++
 	}
 
 	max = 0
@@ -87,10 +87,10 @@ func TestDistribution(t *testing.T) {
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
-		if table.nodes[node].name == "backend-13" {
+		if table.names[node] == "backend-13" {
 			t.Fatal("Dead node was not reassigned after rebuild")
 		}
-		r[table.nodes[node].name]++
+		r[table.names[node]]++
 	}
 
 	max = 0
