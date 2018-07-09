@@ -17,10 +17,10 @@ const (
 
 type Table struct {
 	names       []string
-	hashes      [][]hash
 	assignments []int16
 	mod         uint64
 	strength    int
+	hashes      [][]hash
 }
 
 type hash struct {
@@ -81,7 +81,7 @@ func NewWithPermutationStrength(names []string, size uint, strength int) *Table 
 	for i, name := range t.names {
 		t.hashes[i] = make([]hash, strength)
 		for j := 0; j < strength; j++ {
-			h := siphash.Hash(0xdeadbeefcafebabe, uint64(j), []byte(name))
+			h := hashString(name, uint64(j))
 			t.hashes[i][j] = hash{uint32((h >> 32) % M), uint32((h&0xffffffff)%(M-1) + 1)}
 		}
 	}
