@@ -17,7 +17,7 @@ const (
 
 type Table struct {
 	names       []string
-	assignments []int
+	assignments []int16
 }
 
 type hashed struct {
@@ -25,10 +25,10 @@ type hashed struct {
 	skip   uint32
 }
 
-func New(names []string, M uint) *Table {
+func New(names []string, size uint) *Table {
 	t := &Table{
 		names:       make([]string, len(names)),
-		assignments: make([]int, M),
+		assignments: make([]int16, size),
 	}
 	copy(t.names, names)
 	sort.Strings(t.names)
@@ -63,18 +63,25 @@ func (t *Table) Rebuild(dead []string) {
 	}
 }
 
+func (t *Table) m() uint {
+	if SmallM < len(t.assignments) {
+		return BigM
+	}
+	return SmallM
+}
+
 func (t *Table) hashNames() []hashed {
-	M := uint64(len(t.assignments))
+	M := uint64(t.m())
 	hashes := make([]hashed, len(t.names))
 	for i, name := range t.names {
 		hash := siphash.Hash(0xdeadbeefcafebabe, 0, []byte(name))
-		hashes[i].offset, hashes[i].skip = uint32((hash>>32)%uint64(M)), uint32((hash&0xffffffff)%(uint64(M)-1)+1)
+		hashes[i].offset, hashes[i].skip = uint32((hash>>32)%M), uint32((hash&0xffffffff)%(M-1)+1)
 	}
 	return hashes
 }
 
 func (t *Table) assign(hashes []hashed) {
-	M := len(t.assignments)
+	numPartitions := len(t.assignments)
 	N := len(hashes)
 	assigned := 0
 	cursors := make([]uint32, len(hashes))
@@ -83,9 +90,9 @@ func (t *Table) assign(hashes []hashed) {
 	}
 	for {
 		for node := 0; node < N; node++ {
-			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
+			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = int16(node)
 			assigned++
-			if assigned == M {
+			if assigned == numPartitions {
 				return
 			}
 		}
@@ -93,9 +100,9 @@ func (t *Table) assign(hashes []hashed) {
 }
 
 func (t *Table) reassign(hashes []hashed, dead []int) {
-	M := len(t.assignments)
+	numPartitions := len(t.assignments)
 	N := len(hashes)
-	assigned := M
+	assigned := numPartitions
 	cursors := make([]uint32, len(hashes))
 	deadMap := make(map[int]bool, len(dead))
 
@@ -103,7 +110,7 @@ func (t *Table) reassign(hashes []hashed, dead []int) {
 		deadMap[node] = true
 	}
 	for partition, node := range t.assignments {
-		if deadMap[node] {
+		if deadMap[int(node)] {
 			t.assignments[partition] = -1
 			assigned--
 		}
@@ -115,9 +122,9 @@ func (t *Table) reassign(hashes []hashed, dead []int) {
 				d--
 				continue
 			}
-			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = node
+			t.assignments[t.nextAvailablePartition(hashes[node], cursors, node)] = int16(node)
 			assigned++
-			if assigned == M {
+			if assigned == numPartitions {
 				return
 			}
 		}
@@ -125,10 +132,10 @@ func (t *Table) reassign(hashes []hashed, dead []int) {
 }
 
 func (t *Table) nextAvailablePartition(hash hashed, cursors []uint32, node int) uint {
-	M := uint64(len(t.assignments))
-	offset, skip, cursor := uint64(hash.offset), uint64(hash.skip), uint64(cursors[node])
+	numPartitions := uint64(len(t.assignments))
+	offset, skip, cursor, M := uint64(hash.offset), uint64(hash.skip), uint64(cursors[node]), uint64(t.m())
 	partition := (offset + skip*cursor) % M
-	for t.assignments[partition] >= 0 {
+	for partition > numPartitions-1 || t.assignments[partition] >= 0 {
 		cursor++
 		partition = (offset + skip*cursor) % M
 	}

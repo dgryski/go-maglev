@@ -14,7 +14,7 @@ func TestDistribution(t *testing.T) {
 		names = append(names, fmt.Sprintf("backend-%d", i))
 	}
 
-	table := New(names, SmallM)
+	table := New(names, 1<<13)
 
 	r := make(map[string]int, size)
 	rand.Seed(0)
@@ -53,7 +53,7 @@ func TestDistribution(t *testing.T) {
 
 	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
-	originalAssignments := make([]int, len(table.assignments))
+	originalAssignments := make([]int16, len(table.assignments))
 	copy(originalAssignments, table.assignments)
 
 	table.Rebuild([]string{"backend-13"})
