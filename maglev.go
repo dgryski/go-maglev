@@ -41,6 +41,35 @@ func sortNames(names []string) {
 	})
 }
 
+func deduplicate(existing []string, extra []string, excludeExisting bool) []string {
+	sliceFrom := 0
+	if excludeExisting {
+		sliceFrom = len(existing)
+	}
+	m := make(map[string]bool, len(extra))
+	for _, name := range extra {
+		m[name] = true
+	}
+	found := 0
+	for _, name := range existing {
+		if m[name] {
+			m[name] = false
+			found++
+		}
+	}
+	if found == len(extra) {
+		return existing[sliceFrom:]
+	}
+	deduped := make([]string, 0, len(existing)+len(extra)-found-sliceFrom)
+	deduped = append(deduped, existing[sliceFrom:]...)
+	for name, ok := range m {
+		if ok {
+			deduped = append(deduped, name)
+		}
+	}
+	return deduped
+}
+
 func nextPrime(n uint) uint {
 outer:
 	for {
@@ -68,13 +97,12 @@ func NewWithPermutationStrength(names []string, size uint, strength int) *Table 
 	if strength < 1 {
 		strength = 1
 	}
-	M := uint64(nextPrime(size - 1))
 	t := &Table{
 		names:       append([]string{}, names...),
-		hashes:      make([][]hash, len(names)),
 		assignments: make([]int16, size),
-		mod:         M,
+		mod:         uint64(nextPrime(size - 1)),
 		strength:    strength,
+		hashes:      make([][]hash, len(names)),
 	}
 	t.initialize()
 	t.assign()
@@ -90,17 +118,14 @@ func (t *Table) PartitionOwner(partition int) string {
 }
 
 func (t *Table) Add(names ...string) {
-	var deadNames []string
-	if len(t.dead) != 0 {
-		deadNames = make([]string, len(t.dead))
-		for i, node := range t.dead {
-			deadNames[i] = t.names[node]
-		}
-	}
-	t.names = append(t.names, names...)
+	t.names = deduplicate(t.names, names, false)
 	t.hashes = make([][]hash, len(t.names))
 	t.initialize()
-	t.Rebuild(deadNames)
+	t.Rebuild(deduplicate(names, t.getDeadNames(), true))
+}
+
+func (t *Table) Remove(names ...string) {
+	t.Rebuild(deduplicate(t.getDeadNames(), names, false))
 }
 
 func (t *Table) Rebuild(dead []string) {
@@ -140,19 +165,28 @@ func (t *Table) initialize() {
 	}
 }
 
+func (t *Table) getDeadNames() []string {
+	if len(t.dead) == 0 {
+		return nil
+	}
+	deadNames := make([]string, len(t.dead))
+	for i, node := range t.dead {
+		deadNames[i] = t.names[node]
+	}
+	return deadNames
+}
+
 func (t *Table) assign() {
-	numPartitions := len(t.assignments)
-	N := len(t.names)
 	assigned := 0
-	cursors := make([]uint32, N)
+	cursors := make([]uint32, len(t.names))
 	for partition := range t.assignments {
 		t.assignments[partition] = -1
 	}
 	for {
-		for node := 0; node < N; node++ {
+		for node := 0; node < len(t.names); node++ {
 			t.assignments[t.nextAvailablePartition(cursors, node)] = int16(node)
 			assigned++
-			if assigned == numPartitions {
+			if assigned == len(t.assignments) {
 				return
 			}
 		}
@@ -160,10 +194,8 @@ func (t *Table) assign() {
 }
 
 func (t *Table) reassign() {
-	numPartitions := len(t.assignments)
-	N := len(t.names)
-	assigned := numPartitions
-	cursors := make([]uint32, N)
+	assigned := len(t.assignments)
+	cursors := make([]uint32, len(t.names))
 	deadMap := make(map[int]bool, len(t.dead))
 	for _, node := range t.dead {
 		deadMap[node] = true
@@ -176,14 +208,14 @@ func (t *Table) reassign() {
 	}
 	for {
 		d := len(t.dead) - 1
-		for node := N - 1; node >= 0; node-- {
+		for node := len(t.names) - 1; node >= 0; node-- {
 			if d >= 0 && t.dead[d] == node {
 				d--
 				continue
 			}
 			t.assignments[t.nextAvailablePartition(cursors, node)] = int16(node)
 			assigned++
-			if assigned == numPartitions {
+			if assigned == len(t.assignments) {
 				return
 			}
 		}
@@ -191,10 +223,9 @@ func (t *Table) reassign() {
 }
 
 func (t *Table) nextAvailablePartition(cursors []uint32, node int) uint {
-	numPartitions := uint(len(t.assignments))
 	partition := t.permute(cursors[node], t.hashes[node])
 	cursors[node]++
-	for partition >= numPartitions || t.assignments[partition] >= 0 {
+	for partition >= uint(len(t.assignments)) || t.assignments[partition] >= 0 {
 		partition = t.permute(cursors[node], t.hashes[node])
 		cursors[node]++
 	}

@@ -55,7 +55,7 @@ func TestDistribution(t *testing.T) {
 	originalAssignments := make([]int16, len(table.assignments))
 	copy(originalAssignments, table.assignments)
 
-	table.Rebuild([]string{"backend-13"})
+	table.Remove("backend-13")
 
 	var reassigned int
 	for partition, node := range table.assignments {
@@ -88,7 +88,7 @@ func TestDistribution(t *testing.T) {
 	originalTable.Rebuild(nil)
 
 	table = New(originalTable.names, partitions)
-	table.Add(fmt.Sprintf("backend-%d", size+1))
+	table.Add(append(originalTable.names, fmt.Sprintf("backend-%d", size))...)
 
 	reassigned = 0
 	for partition, node := range table.assignments {
