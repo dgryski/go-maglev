@@ -87,12 +87,12 @@ func TestDistribution(t *testing.T) {
 	originalTable := table
 	originalTable.Rebuild(nil)
 
-	names = append(names, fmt.Sprintf("backend-%d", size))
-	table = New(names, partitions)
+	table = New(originalTable.names, partitions)
+	table.Add(fmt.Sprintf("backend-%d", size+1))
 
 	reassigned = 0
 	for partition, node := range table.assignments {
-		if originalTable.names[originalAssignments[partition]] != table.names[node] {
+		if originalTable.names[originalTable.assignments[partition]] != table.names[node] {
 			reassigned++
 		}
 	}

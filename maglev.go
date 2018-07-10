@@ -22,6 +22,7 @@ type Table struct {
 	assignments []int16
 	mod         uint64
 	strength    int
+	dead        []int
 	hashes      [][]hash
 }
 
@@ -75,20 +76,31 @@ func NewWithPermutationStrength(names []string, size uint, strength int) *Table 
 		mod:         M,
 		strength:    strength,
 	}
-	sortNames(t.names)
-	for i, name := range t.names {
-		t.hashes[i] = make([]hash, strength)
-		for j := 0; j < strength; j++ {
-			h := hashString(name, uint64(j))
-			t.hashes[i][j] = hash{uint32((h >> 32) % M), uint32((h&0xffffffff)%(M-1) + 1)}
-		}
-	}
+	t.initialize()
 	t.assign()
 	return t
 }
 
 func (t *Table) Lookup(key uint64) string {
 	return t.names[t.assignments[key%uint64(len(t.assignments))]]
+}
+
+func (t *Table) PartitionOwner(partition int) string {
+	return t.Lookup(uint64(partition))
+}
+
+func (t *Table) Add(names ...string) {
+	var deadNames []string
+	if len(t.dead) != 0 {
+		deadNames = make([]string, len(t.dead))
+		for i, node := range t.dead {
+			deadNames[i] = t.names[node]
+		}
+	}
+	t.names = append(t.names, names...)
+	t.hashes = make([][]hash, len(t.names))
+	t.initialize()
+	t.Rebuild(deadNames)
 }
 
 func (t *Table) Rebuild(dead []string) {
@@ -98,21 +110,34 @@ func (t *Table) Rebuild(dead []string) {
 	}
 	deadSorted := append([]string{}, dead...)
 	sortNames(deadSorted)
-	deadIndexes := make([]int, len(deadSorted))
+	t.dead = make([]int, len(deadSorted))
 	N := len(t.names)
 	nextIndex := 0
 	found := 0
 	for i, deadNode := range deadSorted {
 		for j := nextIndex; j < N && found < len(deadSorted); j++ {
 			if t.names[j] == deadNode {
-				deadIndexes[i] = j
+				t.dead[i] = j
 				nextIndex = j + 1
 				found++
 				break
 			}
 		}
 	}
-	t.reassign(deadIndexes)
+	t.reassign()
+}
+
+func (t *Table) initialize() {
+	sortNames(t.names)
+	for i, name := range t.names {
+		if t.hashes[i] == nil || len(t.hashes[i]) != t.strength {
+			t.hashes[i] = make([]hash, t.strength)
+		}
+		for j := 0; j < t.strength; j++ {
+			h := hashString(name, uint64(j))
+			t.hashes[i][j] = hash{uint32((h >> 32) % t.mod), uint32((h&0xffffffff)%(t.mod-1) + 1)}
+		}
+	}
 }
 
 func (t *Table) assign() {
@@ -134,13 +159,13 @@ func (t *Table) assign() {
 	}
 }
 
-func (t *Table) reassign(dead []int) {
+func (t *Table) reassign() {
 	numPartitions := len(t.assignments)
 	N := len(t.names)
 	assigned := numPartitions
 	cursors := make([]uint32, N)
-	deadMap := make(map[int]bool, len(dead))
-	for _, node := range dead {
+	deadMap := make(map[int]bool, len(t.dead))
+	for _, node := range t.dead {
 		deadMap[node] = true
 	}
 	for partition, node := range t.assignments {
@@ -150,9 +175,9 @@ func (t *Table) reassign(dead []int) {
 		}
 	}
 	for {
-		d := len(dead) - 1
+		d := len(t.dead) - 1
 		for node := N - 1; node >= 0; node-- {
-			if d >= 0 && dead[d] == node {
+			if d >= 0 && t.dead[d] == node {
 				d--
 				continue
 			}
