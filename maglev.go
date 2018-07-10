@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/dchest/siphash"
+	"golang.org/x/sys/cpu"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 )
 
 type Table struct {
+	_           cpu.CacheLinePad
 	names       []string
 	assignments []int16
 	mod         uint64
@@ -38,27 +40,23 @@ func sortNames(names []string) {
 	})
 }
 
-func nextPrime(num uint) uint {
-	num++
-	for !isPrime(num) {
-		num++
-	}
-	return num
-}
-
-func isPrime(n uint) bool {
-	if n%2 == 0 || n%3 == 0 {
-		return false
-	}
-	i, w := uint(5), uint(2)
-	for i*i <= n {
-		if n%i == 0 {
-			return false
+func nextPrime(n uint) uint {
+outer:
+	for {
+		n++
+		if n%2 == 0 || n%3 == 0 {
+			continue
 		}
-		i += w
-		w = 6 - w
+		i, w := uint(5), uint(2)
+		for i*i <= n {
+			if n%i == 0 {
+				continue outer
+			}
+			i += w
+			w = 6 - w
+		}
+		return n
 	}
-	return true
 }
 
 func New(names []string, size uint) *Table {
