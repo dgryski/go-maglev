@@ -7,14 +7,17 @@ import (
 )
 
 func TestDistribution(t *testing.T) {
-	const size = 125
+	const size = 1000
+	const partitions = size * 100
 
 	var names []string
 	for i := 0; i < size; i++ {
 		names = append(names, fmt.Sprintf("backend-%d", i))
 	}
 
-	table := New(names, 1<<13)
+	table := New(names, partitions)
+
+	t.Logf("names=%v, partitions=%v, modulus=%v", size, partitions, table.mod)
 
 	r := make(map[string]int, size)
 	rand.Seed(0)
@@ -22,7 +25,6 @@ func TestDistribution(t *testing.T) {
 		name := table.Lookup(uint64(rand.Int63()))
 		r[name]++
 	}
-
 	var total int
 	var max int
 	for _, v := range r {
@@ -31,7 +33,6 @@ func TestDistribution(t *testing.T) {
 			max = v
 		}
 	}
-
 	mean := float64(total) / size
 	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
 
@@ -39,7 +40,6 @@ func TestDistribution(t *testing.T) {
 	for _, node := range table.assignments {
 		r[table.names[node]]++
 	}
-
 	max = 0
 	min := 1 << 30
 	for _, v := range r {
@@ -50,7 +50,6 @@ func TestDistribution(t *testing.T) {
 			min = v
 		}
 	}
-
 	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
 	originalAssignments := make([]int16, len(table.assignments))
@@ -60,30 +59,11 @@ func TestDistribution(t *testing.T) {
 
 	var reassigned int
 	for partition, node := range table.assignments {
-		if originalAssignments[partition] != node {
+		if table.names[originalAssignments[partition]] != table.names[node] {
 			reassigned++
 		}
 	}
-
 	t.Logf("reassigned=%v/%v=%v", reassigned, len(originalAssignments), float64(reassigned)/float64(len(originalAssignments)))
-
-	r = make(map[string]int, size)
-	for i := 0; i < 1e6; i++ {
-		name := table.Lookup(uint64(rand.Int63()))
-		r[name]++
-	}
-
-	total = 0
-	max = 0
-	for _, v := range r {
-		total += v
-		if v > max {
-			max = v
-		}
-	}
-
-	mean = float64(total) / size
-	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
@@ -92,7 +72,6 @@ func TestDistribution(t *testing.T) {
 		}
 		r[table.names[node]]++
 	}
-
 	max = 0
 	min = 1 << 30
 	for _, v := range r {
@@ -103,10 +82,20 @@ func TestDistribution(t *testing.T) {
 			min = v
 		}
 	}
-
 	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
-	if nextPrime(104312) != 104323 {
-		t.Fatal("nextPrime is broken")
+	originalTable := table
+	originalTable.Rebuild(nil)
+
+	names = append(names, fmt.Sprintf("backend-%d", size))
+	table = New(names, partitions)
+
+	reassigned = 0
+	for partition, node := range table.assignments {
+		if originalTable.names[originalAssignments[partition]] != table.names[node] {
+			reassigned++
+		}
 	}
+	t.Logf("reassigned=%v/%v=%v", reassigned, len(originalAssignments), float64(reassigned)/float64(len(originalAssignments)))
+
 }

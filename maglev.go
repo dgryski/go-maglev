@@ -94,6 +94,10 @@ func (t *Table) Lookup(key uint64) string {
 }
 
 func (t *Table) Rebuild(dead []string) {
+	t.assign()
+	if len(dead) == 0 {
+		return
+	}
 	deadSorted := append([]string{}, dead...)
 	sortNames(deadSorted)
 	deadIndexes := make([]int, len(deadSorted))
@@ -110,10 +114,7 @@ func (t *Table) Rebuild(dead []string) {
 			}
 		}
 	}
-	t.assign()
-	if len(dead) > 0 {
-		t.reassign(deadIndexes)
-	}
+	t.reassign(deadIndexes)
 }
 
 func (t *Table) assign() {
@@ -170,7 +171,7 @@ func (t *Table) nextAvailablePartition(cursors []uint32, node int) uint {
 	numPartitions := uint(len(t.assignments))
 	partition := t.permute(cursors[node], t.hashes[node])
 	cursors[node]++
-	for partition > numPartitions-1 || t.assignments[partition] >= 0 {
+	for partition >= numPartitions || t.assignments[partition] >= 0 {
 		partition = t.permute(cursors[node], t.hashes[node])
 		cursors[node]++
 	}
