@@ -2,6 +2,7 @@ package maglev
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 )
 
@@ -9,12 +10,20 @@ func TestDistribution(t *testing.T) {
 	const size = 1000
 	const partitions = size * 100
 
+	rand.Seed(0)
+
 	var names []string
 	for i := 0; i < size; i++ {
 		names = append(names, fmt.Sprintf("backend-%d", i))
 	}
 
 	table := New(names, partitions)
+
+	for i := 0; i < 1e6; i++ {
+		if len(table.Lookup(uint64(rand.Int63()))) == 0 {
+			t.Fatal("Failed lookup")
+		}
+	}
 
 	t.Logf("[New]: names=%v, partitions=%v, modulus=%v", size, partitions, table.mod)
 
