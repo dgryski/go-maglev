@@ -17,28 +17,57 @@ const (
 )
 
 type Table struct {
-	_           cpu.CacheLinePad
-	names       []string
-	assignments []int16
-	mod         uint64
-	strength    int
-	dead        []int
-	hashes      [][]hash
+	_                 cpu.CacheLinePad
+	names             []string
+	assignments       []int16
+	mod               uint64
+	hashKey           uint64
+	permutationRounds int
+	dead              []int
+	hashes            [][]hash
 }
 
 type hash struct {
 	offset, skip uint32
 }
 
-func hashString(s string, seed uint64) uint64 {
-	return siphash.Hash(0xdeadbeefcafebabe, seed, []byte(s))
+type options struct {
+	permutationRounds int
+	mod               uint64
+	hashKey           uint64
 }
 
-func sortNames(names []string) {
+type Option func(*options)
+
+func WithPermutationRounds(rounds int) Option {
+	return func(opts *options) { opts.permutationRounds = rounds }
+}
+
+func WithModulus(mod uint64) Option {
+	return func(opts *options) { opts.mod = mod }
+}
+
+func WithHashKey(key uint64) Option {
+	return func(opt *options) { opt.hashKey = key }
+}
+
+func hashString(s string, hashKey uint64, seed uint64) uint64 {
+	return siphash.Hash(hashKey, seed, []byte(s))
+}
+
+func sortNames(names []string, hashKey uint64) {
 	sort.Slice(names, func(i, j int) bool {
-		hi, hj := hashString(names[i], 0), hashString(names[j], 0)
+		hi, hj := hashString(names[i], hashKey, 0), hashString(names[j], hashKey, 0)
 		return hi < hj || (hi == hj && names[i] < names[j])
 	})
+}
+
+func permute(cursor uint32, hashes []hash, mod uint64) uint {
+	c := uint64(cursor)
+	for _, h := range hashes {
+		c = (uint64(h.offset) + uint64(h.skip)*c) % mod
+	}
+	return uint(c)
 }
 
 func deduplicate(existing []string, extra []string, excludeExisting bool) []string {
@@ -89,20 +118,25 @@ outer:
 	}
 }
 
-func New(names []string, size uint) *Table {
-	return NewWithPermutationStrength(names, size, 3)
-}
-
-func NewWithPermutationStrength(names []string, size uint, strength int) *Table {
-	if strength < 1 {
-		strength = 1
+func New(names []string, partitions uint, args ...Option) *Table {
+	opts := &options{
+		permutationRounds: 3,
+		mod:               SmallM,
+		hashKey:           0xdeadbeefcafebabe,
+	}
+	for _, arg := range args {
+		arg(opts)
+	}
+	if opts.mod < uint64(partitions) {
+		opts.mod = uint64(nextPrime(partitions - 1))
 	}
 	t := &Table{
-		names:       append([]string{}, names...),
-		assignments: make([]int16, size),
-		mod:         uint64(nextPrime(size - 1)),
-		strength:    strength,
-		hashes:      make([][]hash, len(names)),
+		names:             append([]string{}, names...),
+		assignments:       make([]int16, partitions),
+		mod:               opts.mod,
+		hashKey:           opts.hashKey,
+		permutationRounds: opts.permutationRounds,
+		hashes:            make([][]hash, len(names)),
 	}
 	t.initialize()
 	t.assign()
@@ -118,14 +152,22 @@ func (t *Table) PartitionOwner(partition int) string {
 }
 
 func (t *Table) Add(names ...string) {
+	originalNameCount := len(t.names)
 	t.names = deduplicate(t.names, names, false)
-	t.hashes = make([][]hash, len(t.names))
+	if len(t.names) == originalNameCount {
+		return
+	}
 	t.initialize()
 	t.Rebuild(deduplicate(names, t.getDeadNames(), true))
 }
 
 func (t *Table) Remove(names ...string) {
-	t.Rebuild(deduplicate(t.getDeadNames(), names, false))
+	originalDeadCount := len(t.dead)
+	dead := deduplicate(t.getDeadNames(), names, false)
+	if len(dead) == originalDeadCount {
+		return
+	}
+	t.Rebuild(dead)
 }
 
 func (t *Table) Rebuild(dead []string) {
@@ -133,34 +175,42 @@ func (t *Table) Rebuild(dead []string) {
 	if len(dead) == 0 {
 		return
 	}
-	deadSorted := append([]string{}, dead...)
-	sortNames(deadSorted)
-	t.dead = make([]int, len(deadSorted))
+	sorted := make([]string, len(dead))
+	copy(sorted, dead)
+	sortNames(sorted, t.hashKey)
+	indexedDead := make([]int, len(dead))
 	N := len(t.names)
 	nextIndex := 0
 	found := 0
-	for i, deadNode := range deadSorted {
-		for j := nextIndex; j < N && found < len(deadSorted); j++ {
+	for i, deadNode := range sorted {
+		for j := nextIndex; j < N && found < len(dead); j++ {
 			if t.names[j] == deadNode {
-				t.dead[i] = j
+				indexedDead[i] = j
 				nextIndex = j + 1
 				found++
 				break
 			}
 		}
 	}
+	t.dead = indexedDead
 	t.reassign()
 }
 
 func (t *Table) initialize() {
-	sortNames(t.names)
+	sortNames(t.names, t.hashKey)
+	if len(t.hashes) != len(t.names) {
+		t.hashes = make([][]hash, len(t.names))
+	}
 	for i, name := range t.names {
-		if t.hashes[i] == nil || len(t.hashes[i]) != t.strength {
-			t.hashes[i] = make([]hash, t.strength)
+		if t.hashes[i] == nil || len(t.hashes[i]) != t.permutationRounds {
+			t.hashes[i] = make([]hash, t.permutationRounds)
 		}
-		for j := 0; j < t.strength; j++ {
-			h := hashString(name, uint64(j))
-			t.hashes[i][j] = hash{uint32((h >> 32) % t.mod), uint32((h&0xffffffff)%(t.mod-1) + 1)}
+		for j := 0; j < t.permutationRounds; j++ {
+			h64 := hashString(name, t.hashKey, uint64(j))
+			t.hashes[i][j] = hash{
+				offset: uint32((h64 >> 32) % t.mod),
+				skip:   uint32((h64&0xffffffff)%(t.mod-1) + 1),
+			}
 		}
 	}
 }
@@ -223,19 +273,11 @@ func (t *Table) reassign() {
 }
 
 func (t *Table) nextAvailablePartition(cursors []uint32, node int) uint {
-	partition := t.permute(cursors[node], t.hashes[node])
+	partition := permute(cursors[node], t.hashes[node], t.mod)
 	cursors[node]++
 	for partition >= uint(len(t.assignments)) || t.assignments[partition] >= 0 {
-		partition = t.permute(cursors[node], t.hashes[node])
+		partition = permute(cursors[node], t.hashes[node], t.mod)
 		cursors[node]++
 	}
 	return partition
-}
-
-func (t *Table) permute(cursor uint32, hashes []hash) uint {
-	c := uint64(cursor)
-	for _, h := range hashes {
-		c = (uint64(h.offset) + uint64(h.skip)*c) % t.mod
-	}
-	return uint(c)
 }

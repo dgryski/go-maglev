@@ -2,7 +2,6 @@ package maglev
 
 import (
 	"fmt"
-	"math/rand"
 	"testing"
 )
 
@@ -17,53 +16,42 @@ func TestDistribution(t *testing.T) {
 
 	table := New(names, partitions)
 
-	t.Logf("names=%v, partitions=%v, modulus=%v", size, partitions, table.mod)
+	t.Logf("[New]: names=%v, partitions=%v, modulus=%v", size, partitions, table.mod)
 
-	r := make(map[string]int, size)
-	rand.Seed(0)
-	for i := 0; i < 1e6; i++ {
-		name := table.Lookup(uint64(rand.Int63()))
-		r[name]++
-	}
-	var total int
-	var max int
-	for _, v := range r {
-		total += v
-		if v > max {
-			max = v
+	var min, max int
+	getMinMax := func(r map[string]int) {
+		max = 0
+		min = 1 << 30
+		for _, v := range r {
+			if v > max {
+				max = v
+			}
+			if v < min {
+				min = v
+			}
 		}
 	}
-	mean := float64(total) / size
-	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
 
-	r = make(map[string]int, size)
+	r := make(map[string]int, size)
 	for _, node := range table.assignments {
 		r[table.names[node]]++
 	}
-	max = 0
-	min := 1 << 30
-	for _, v := range r {
-		if v > max {
-			max = v
-		}
-		if v < min {
-			min = v
-		}
-	}
-	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+	getMinMax(r)
+	t.Logf("[New]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
-	originalAssignments := make([]int16, len(table.assignments))
-	copy(originalAssignments, table.assignments)
+	originalTable := table
+	originalTable.Rebuild(nil)
 
+	table = New(originalTable.names, partitions)
 	table.Remove("backend-13")
 
-	var reassigned int
+	reassigned := 0
 	for partition, node := range table.assignments {
-		if table.names[originalAssignments[partition]] != table.names[node] {
+		if originalTable.names[originalTable.assignments[partition]] != table.names[node] {
 			reassigned++
 		}
 	}
-	t.Logf("reassigned=%v/%v=%v", reassigned, len(originalAssignments), float64(reassigned)/float64(len(originalAssignments)))
+	t.Logf("[New -> Remove 1]: reassigned=%v/%v=%v", reassigned, partitions, float64(reassigned)/float64(partitions))
 
 	r = make(map[string]int, size)
 	for _, node := range table.assignments {
@@ -72,20 +60,8 @@ func TestDistribution(t *testing.T) {
 		}
 		r[table.names[node]]++
 	}
-	max = 0
-	min = 1 << 30
-	for _, v := range r {
-		if v > max {
-			max = v
-		}
-		if v < min {
-			min = v
-		}
-	}
-	t.Logf("max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
-
-	originalTable := table
-	originalTable.Rebuild(nil)
+	getMinMax(r)
+	t.Logf("[New -> Remove 1]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
 	table = New(originalTable.names, partitions)
 	table.Add(append(originalTable.names, fmt.Sprintf("backend-%d", size))...)
@@ -96,6 +72,13 @@ func TestDistribution(t *testing.T) {
 			reassigned++
 		}
 	}
-	t.Logf("reassigned=%v/%v=%v", reassigned, len(originalAssignments), float64(reassigned)/float64(len(originalAssignments)))
+	t.Logf("[New -> Add 1]: reassigned=%v/%v=%v", reassigned, partitions, float64(reassigned)/float64(partitions))
+
+	r = make(map[string]int, size)
+	for _, node := range table.assignments {
+		r[table.names[node]]++
+	}
+	getMinMax(r)
+	t.Logf("[New -> Add 1]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
 
 }
