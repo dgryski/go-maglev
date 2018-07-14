@@ -8,7 +8,6 @@ import (
 	"sort"
 
 	"github.com/dchest/siphash"
-	"golang.org/x/sys/cpu"
 )
 
 const (
@@ -17,7 +16,6 @@ const (
 )
 
 type Table struct {
-	_                 cpu.CacheLinePad
 	names             []string
 	assignments       []int16
 	mod               uint64
