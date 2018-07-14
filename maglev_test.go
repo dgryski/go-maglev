@@ -19,7 +19,7 @@ func TestDistribution(t *testing.T) {
 
 	table := New(names, partitions)
 
-	for i := 0; i < 1e6; i++ {
+	for i := 0; i < 1e8*6; i++ {
 		if len(table.Lookup(uint64(rand.Int63()))) == 0 {
 			t.Fatal("Failed lookup")
 		}
