@@ -3,59 +3,91 @@ package maglev
 import (
 	"fmt"
 	"math/rand"
-	"reflect"
 	"testing"
 )
 
-func TestPopulate(t *testing.T) {
-
-	var tests = []struct {
-		dead []int
-		want []int
-	}{
-		{nil, []int{1, 0, 1, 0, 2, 2, 0}},
-		{[]int{1}, []int{0, 0, 0, 0, 2, 2, 2}},
-	}
-
-	permutations := [][]uint64{
-		{3, 0, 4, 1, 5, 2, 6},
-		{0, 2, 4, 6, 1, 3, 5},
-		{3, 4, 5, 6, 0, 1, 2},
-	}
-
-	for _, tt := range tests {
-		if got := populate(permutations, tt.dead); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("populate(...,%v)=%v, want %v", tt.dead, got, tt.want)
-		}
-	}
-}
-
 func TestDistribution(t *testing.T) {
-	const size = 125
+	const size = 1000
+	const partitions = size * 100
+
+	rand.Seed(0)
 
 	var names []string
 	for i := 0; i < size; i++ {
 		names = append(names, fmt.Sprintf("backend-%d", i))
 	}
 
-	table := New(names, SmallM)
+	table := New(names, partitions)
 
-	r := make([]int, size)
-	rand.Seed(0)
-	for i := 0; i < 1e6; i++ {
-		idx := table.Lookup(uint64(rand.Int63()))
-		r[idx]++
-	}
-
-	var total int
-	var max = 0
-	for _, v := range r {
-		total += v
-		if v > max {
-			max = v
+	for i := 0; i < 1e8*6; i++ {
+		if len(table.Lookup(uint64(rand.Int63()))) == 0 {
+			t.Fatal("Failed lookup")
 		}
 	}
 
-	mean := float64(total) / size
-	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
+	t.Logf("[New]: names=%v, partitions=%v, modulus=%v", size, partitions, table.mod)
+
+	var min, max int
+	getMinMax := func(r map[string]int) {
+		max = 0
+		min = 1 << 30
+		for _, v := range r {
+			if v > max {
+				max = v
+			}
+			if v < min {
+				min = v
+			}
+		}
+	}
+
+	r := make(map[string]int, size)
+	for _, node := range table.assignments {
+		r[table.names[node]]++
+	}
+	getMinMax(r)
+	t.Logf("[New]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+
+	originalTable := table
+	originalTable.Rebuild(nil)
+
+	table = New(originalTable.names, partitions)
+	table.Remove("backend-13")
+
+	reassigned := 0
+	for partition, node := range table.assignments {
+		if originalTable.names[originalTable.assignments[partition]] != table.names[node] {
+			reassigned++
+		}
+	}
+	t.Logf("[New -> Remove 1]: reassigned=%v/%v=%v", reassigned, partitions, float64(reassigned)/float64(partitions))
+
+	r = make(map[string]int, size)
+	for _, node := range table.assignments {
+		if table.names[node] == "backend-13" {
+			t.Fatal("Dead node was not reassigned after rebuild")
+		}
+		r[table.names[node]]++
+	}
+	getMinMax(r)
+	t.Logf("[New -> Remove 1]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+
+	table = New(originalTable.names, partitions)
+	table.Add(append(originalTable.names, fmt.Sprintf("backend-%d", size))...)
+
+	reassigned = 0
+	for partition, node := range table.assignments {
+		if originalTable.names[originalTable.assignments[partition]] != table.names[node] {
+			reassigned++
+		}
+	}
+	t.Logf("[New -> Add 1]: reassigned=%v/%v=%v", reassigned, partitions, float64(reassigned)/float64(partitions))
+
+	r = make(map[string]int, size)
+	for _, node := range table.assignments {
+		r[table.names[node]]++
+	}
+	getMinMax(r)
+	t.Logf("[New -> Add 1]: max-assignment=%v, min-assignment=%v max-to-min=%v", max, min, float64(max)/float64(min))
+
 }
