@@ -35,7 +35,7 @@ func TestPopulate(t *testing.T) {
 	table.resetOffsets()
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 7; j++ {
-			table.next(i, &newPermutations[i][j])
+			table.nextOffset(i, &newPermutations[i][j])
 		}
 	}
 

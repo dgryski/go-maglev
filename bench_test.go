@@ -35,6 +35,6 @@ func BenchmarkNew(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		table := New(names, SmallM)
-		total += len(table.offsets)
+		total += len(table.currentOffsets)
 	}
 }
