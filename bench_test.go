@@ -8,7 +8,6 @@ import (
 var total int
 
 func BenchmarkGenerate(b *testing.B) {
-
 	const size = 125
 
 	var names []string
@@ -19,7 +18,23 @@ func BenchmarkGenerate(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		p := generatePermutations(names, BigM)
-		total += len(p)
+		offsets, _ := generateOffsetAndSkips(names, SmallM)
+		total += len(offsets)
+	}
+}
+
+func BenchmarkNew(b *testing.B) {
+	const size = 125
+
+	var names []string
+	for i := 0; i < size; i++ {
+		names = append(names, fmt.Sprintf("backend-%d", i))
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		table := New(names, SmallM)
+		total += len(table.currentOffsets)
 	}
 }

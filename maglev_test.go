@@ -7,24 +7,52 @@ import (
 	"testing"
 )
 
+// TestLookup tests the lookup field in table
+func TestLookup(t *testing.T) {
+	table := getTestingMaglevTable()
+
+	if !reflect.DeepEqual(table.lookup, []int{
+		1, 2, 0, 2, 0, 1, 0,
+	}) {
+		t.Errorf("table lookup field not the same")
+	}
+}
+
 func TestPopulate(t *testing.T) {
+	table := getTestingMaglevTable()
 
 	var tests = []struct {
 		dead []int
 		want []int
 	}{
-		{nil, []int{1, 0, 1, 0, 2, 2, 0}},
-		{[]int{1}, []int{0, 0, 0, 0, 2, 2, 2}},
+		{nil, []int{1, 2, 0, 2, 0, 1, 0}},
+		{[]int{1}, []int{0, 2, 0, 2, 0, 2, 0}},
 	}
 
 	permutations := [][]uint64{
-		{3, 0, 4, 1, 5, 2, 6},
-		{0, 2, 4, 6, 1, 3, 5},
-		{3, 4, 5, 6, 0, 1, 2},
+		{2, 6, 3, 0, 4, 1, 5},
+		{0, 5, 3, 1, 6, 4, 2},
+		{1, 3, 5, 0, 2, 4, 6},
+	}
+	newPermutations := [][]uint64{
+		make([]uint64, 7),
+		make([]uint64, 7),
+		make([]uint64, 7),
+	}
+	table.resetOffsets()
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 7; j++ {
+			table.nextOffset(i, &newPermutations[i][j])
+		}
+	}
+
+	if !reflect.DeepEqual(permutations, newPermutations) {
+		t.Errorf("permutations=%v, want %v", newPermutations, permutations)
+		t.Errorf("1")
 	}
 
 	for _, tt := range tests {
-		if got := populate(permutations, tt.dead); !reflect.DeepEqual(got, tt.want) {
+		if got := table.populate(7, tt.dead); !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("populate(...,%v)=%v, want %v", tt.dead, got, tt.want)
 		}
 	}
@@ -58,4 +86,12 @@ func TestDistribution(t *testing.T) {
 
 	mean := float64(total) / size
 	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
+}
+
+func getTestingMaglevTable() *Table {
+	return New([]string{
+		"backend-0",
+		"backend-1",
+		"backend-2",
+	}, 7)
 }

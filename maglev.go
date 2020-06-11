@@ -4,7 +4,9 @@
 */
 package maglev
 
-import "github.com/dchest/siphash"
+import (
+	"github.com/dchest/siphash"
+)
 
 const (
 	SmallM = 65537
@@ -12,19 +14,34 @@ const (
 )
 
 type Table struct {
-	n            int
-	lookup       []int
-	permutations [][]uint64
+	n      int
+	lookup []int
+	m      uint64
+
+	// currentOffsets saves the current offset of i index
+	currentOffsets []uint64
+	// skips saves the skips of i index
+	skips []uint64
+
+	// originOffsets saves the first currentOffsets
+	originOffsets []uint64
 }
 
 func New(names []string, m uint64) *Table {
-	permutations := generatePermutations(names, m)
-	lookup := populate(permutations, nil)
-	return &Table{
-		n:            len(names),
-		lookup:       lookup,
-		permutations: permutations,
+	offsets, skips := generateOffsetAndSkips(names, m)
+	t := &Table{
+		n:              len(names),
+		skips:          skips,
+		currentOffsets: offsets,
+		originOffsets:  make([]uint64, len(names)),
+		m:              m,
 	}
+
+	// save first currentOffsets to originOffsets, for reset
+	copy(t.originOffsets, t.currentOffsets)
+	t.lookup = t.populate(m, nil)
+
+	return t
 }
 
 func (t *Table) Lookup(key uint64) int {
@@ -32,42 +49,33 @@ func (t *Table) Lookup(key uint64) int {
 }
 
 func (t *Table) Rebuild(dead []int) {
-	t.lookup = populate(t.permutations, dead)
+	t.lookup = t.populate(t.m, dead)
 }
 
-func generatePermutations(names []string, M uint64) [][]uint64 {
-	permutations := make([][]uint64, len(names))
+// generateOffsetAndSkips generates the first offset and skip, which is used to generate hash sequence
+func generateOffsetAndSkips(names []string, M uint64) ([]uint64, []uint64) {
+	offsets := make([]uint64, len(names))
+	skips := make([]uint64, len(names))
 
 	for i, name := range names {
 		b := []byte(name)
 		h := siphash.Hash(0xdeadbeefcafebabe, 0, b)
-		offset, skip := (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
-		p := make([]uint64, M)
-		idx := offset
-		for j := uint64(0); j < M; j++ {
-			p[j] = idx
-			idx += skip
-			if idx >= M {
-				idx -= M
-			}
-		}
-		permutations[i] = p
+		offsets[i], skips[i] = (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
 	}
 
-	return permutations
+	return offsets, skips
 }
 
-func populate(permutation [][]uint64, dead []int) []int {
-	M := len(permutation[0])
-	N := len(permutation)
+func (t *Table) populate(M uint64, dead []int) []int {
+	t.resetOffsets()
+	N := len(t.currentOffsets)
 
-	next := make([]uint64, N)
 	entry := make([]int, M)
 	for j := range entry {
 		entry[j] = -1
 	}
 
-	var n int
+	var n uint64
 	for {
 		d := dead
 		for i := 0; i < N; i++ {
@@ -75,17 +83,33 @@ func populate(permutation [][]uint64, dead []int) []int {
 				d = d[1:]
 				continue
 			}
-			c := permutation[i][next[i]]
+
+			var c uint64
+			t.nextOffset(i, &c)
+
 			for entry[c] >= 0 {
-				next[i]++
-				c = permutation[i][next[i]]
+				t.nextOffset(i, &c)
 			}
 			entry[c] = i
-			next[i]++
 			n++
 			if n == M {
 				return entry
 			}
 		}
 	}
+}
+
+// nextOffset generate next offset of i index, by adding skips[i]
+func (t *Table) nextOffset(i int, c *uint64) {
+	*c = t.currentOffsets[i]
+
+	t.currentOffsets[i] += t.skips[i]
+	if t.currentOffsets[i] >= t.m {
+		t.currentOffsets[i] -= t.m
+	}
+}
+
+// resetOffsets reset originOffsets to current offset
+func (t *Table) resetOffsets() {
+	copy(t.currentOffsets, t.originOffsets)
 }
