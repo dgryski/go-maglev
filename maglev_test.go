@@ -7,12 +7,19 @@ import (
 	"testing"
 )
 
+// TestLookup tests the lookup field in table
+func TestLookup(t *testing.T) {
+	table := getTestingMaglevTable()
+
+	if !reflect.DeepEqual(table.lookup, []int{
+		1, 2, 0, 2, 0, 1, 0,
+	}) {
+		t.Errorf("table lookup field not the same")
+	}
+}
+
 func TestPopulate(t *testing.T) {
-	table := New([]string{
-		"backend-0",
-		"backend-1",
-		"backend-2",
-	}, 7)
+	table := getTestingMaglevTable()
 
 	var tests = []struct {
 		dead []int
@@ -79,4 +86,12 @@ func TestDistribution(t *testing.T) {
 
 	mean := float64(total) / size
 	t.Logf("max=%v, mean=%v, peak-to-mean=%v", max, mean, float64(max)/mean)
+}
+
+func getTestingMaglevTable() *Table {
+	return New([]string{
+		"backend-0",
+		"backend-1",
+		"backend-2",
+	}, 7)
 }
