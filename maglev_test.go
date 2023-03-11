@@ -22,11 +22,12 @@ func TestPopulate(t *testing.T) {
 	table := getTestingMaglevTable()
 
 	var tests = []struct {
-		dead []int
-		want []int
+		dead               []int
+		wantEntry          []int
+		wantCurrentOffsets []uint64
 	}{
-		{nil, []int{1, 2, 0, 2, 0, 1, 0}},
-		{[]int{1}, []int{0, 2, 0, 2, 0, 2, 0}},
+		{dead: nil, wantEntry: []int{1, 2, 0, 2, 0, 1, 0}, wantCurrentOffsets: []uint64{1, 3, 5}},
+		{dead: []int{1}, wantEntry: []int{0, 2, 0, 2, 0, 2, 0}, wantCurrentOffsets: []uint64{1, 0, 0}},
 	}
 
 	permutations := [][]uint64{
@@ -42,7 +43,7 @@ func TestPopulate(t *testing.T) {
 	table.resetOffsets()
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 7; j++ {
-			table.nextOffset(i, &newPermutations[i][j])
+			newPermutations[i][j] = table.nextOffset(i)
 		}
 	}
 
@@ -52,8 +53,13 @@ func TestPopulate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := table.populate(7, tt.dead); !reflect.DeepEqual(got, tt.want) {
-			t.Errorf("populate(...,%v)=%v, want %v", tt.dead, got, tt.want)
+		table.resetOffsets()
+		if got := table.populate(tt.dead); !reflect.DeepEqual(got, tt.wantEntry) {
+			t.Errorf("populate(...,%v)=%v, want %v", tt.dead, got, tt.wantEntry)
+		}
+
+		if !reflect.DeepEqual(table.currentOffsets, tt.wantCurrentOffsets) {
+			t.Errorf("currentOffsets=%v, want %v", table.currentOffsets, tt.wantCurrentOffsets)
 		}
 	}
 }
