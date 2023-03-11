@@ -5,6 +5,9 @@
 package maglev
 
 import (
+	"reflect"
+	"unsafe"
+
 	"github.com/dchest/siphash"
 )
 
@@ -39,7 +42,7 @@ func New(names []string, m uint64) *Table {
 
 	// save first currentOffsets to originOffsets, for reset
 	copy(t.originOffsets, t.currentOffsets)
-	t.lookup = t.populate(m, nil)
+	t.lookup = t.populate(nil)
 
 	return t
 }
@@ -49,7 +52,8 @@ func (t *Table) Lookup(key uint64) int {
 }
 
 func (t *Table) Rebuild(dead []int) {
-	t.lookup = t.populate(t.m, dead)
+	t.resetOffsets()
+	t.lookup = t.populate(dead)
 }
 
 // generateOffsetAndSkips generates the first offset and skip, which is used to generate hash sequence
@@ -57,20 +61,25 @@ func generateOffsetAndSkips(names []string, M uint64) ([]uint64, []uint64) {
 	offsets := make([]uint64, len(names))
 	skips := make([]uint64, len(names))
 
-	for i, name := range names {
-		b := []byte(name)
-		h := siphash.Hash(0xdeadbeefcafebabe, 0, b)
+	for i := range names {
+		h := siphash.Hash(0xdeadbeefcafebabe, 0, toUnsafeBytes(names[i]))
 		offsets[i], skips[i] = (h>>32)%M, ((h&0xffffffff)%(M-1) + 1)
 	}
 
 	return offsets, skips
 }
 
-func (t *Table) populate(M uint64, dead []int) []int {
-	t.resetOffsets()
-	N := len(t.currentOffsets)
+func toUnsafeBytes(s string) (b []byte) {
+	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	slh := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	slh.Data = sh.Data
+	slh.Len = sh.Len
+	slh.Cap = sh.Len
+	return b
+}
 
-	entry := make([]int, M)
+func (t *Table) populate(dead []int) []int {
+	entry := make([]int, t.m)
 	for j := range entry {
 		entry[j] = -1
 	}
@@ -78,21 +87,30 @@ func (t *Table) populate(M uint64, dead []int) []int {
 	var n uint64
 	for {
 		d := dead
-		for i := 0; i < N; i++ {
+		for i, c := range t.currentOffsets {
 			if len(d) > 0 && d[0] == i {
 				d = d[1:]
 				continue
 			}
 
-			var c uint64
-			t.nextOffset(i, &c)
+			skipsI := t.skips[i]
+			newC := c + skipsI
+			if newC >= t.m {
+				newC -= t.m
+			}
 
 			for entry[c] >= 0 {
-				t.nextOffset(i, &c)
+				c = newC
+				newC = c + skipsI
+				if newC >= t.m {
+					newC -= t.m
+				}
 			}
+			t.currentOffsets[i] = newC
+
 			entry[c] = i
 			n++
-			if n == M {
+			if n == t.m {
 				return entry
 			}
 		}
@@ -100,13 +118,15 @@ func (t *Table) populate(M uint64, dead []int) []int {
 }
 
 // nextOffset generate next offset of i index, by adding skips[i]
-func (t *Table) nextOffset(i int, c *uint64) {
-	*c = t.currentOffsets[i]
+func (t *Table) nextOffset(i int) uint64 {
+	c := t.currentOffsets[i]
 
 	t.currentOffsets[i] += t.skips[i]
 	if t.currentOffsets[i] >= t.m {
 		t.currentOffsets[i] -= t.m
 	}
+
+	return c
 }
 
 // resetOffsets reset originOffsets to current offset
